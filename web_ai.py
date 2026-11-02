@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 from pypdf import PdfReader
-import pandas as pd  # 🌟 必须有这行
+import pandas as pd  # 🌟 必须有这行的
 
 load_dotenv()
 
