@@ -4,3 +4,4 @@ pypdf
 python-dotenv
 pandas
 openpyxl
+duckduckgo-search

@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pypdf import PdfReader
 import pandas as pd
+from duckduckgo_search import DDGS  # 🌟 导入搜索库
 
 load_dotenv()
 
@@ -16,10 +17,14 @@ except Exception:
     api_key = os.getenv("DEEPSEEK_API_KEY")
 
 # ==========================================
-# 1. 先定义侧边栏的基础设置（角色、上传文件）
+# 1. 侧边栏基础设置
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 设置")
+
+    # 💡【必懂】：联网搜索开关
+    enable_web_search = st.toggle("🌐 开启联网搜索", value=False)
+
     role = st.selectbox(
         "请选择 AI 的角色：",
         ["简洁幽默的助手", "暴躁老哥", "资深 Python 导师", "文档阅读专家", "翻译官"]
@@ -32,12 +37,11 @@ with st.sidebar:
         st.rerun()
 
 # ==========================================
-# 2. 处理文件（这里是提取数据的地方）
+# 2. 处理文件
 # ==========================================
 document_text = ""
 if uploaded_file is not None:
     file_ext = uploaded_file.name.split(".")[-1].lower()
-
     try:
         if file_ext == "pdf":
             reader = PdfReader(uploaded_file)
@@ -45,17 +49,14 @@ if uploaded_file is not None:
                 text = page.extract_text()
                 if text:
                     document_text += text + "\n"
-
         elif file_ext == "txt":
             document_text = uploaded_file.read().decode('utf-8')
-
         elif file_ext in ["csv", "xlsx"]:
             if file_ext == "csv":
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
 
-            # 💡【必懂】：把数据存进 session_state，这样侧边栏才能用到
             st.session_state.df = df
             document_text = df.to_csv(index=False)
 
@@ -66,21 +67,18 @@ if uploaded_file is not None:
 
         if len(document_text) > 0:
             st.success(f"✅ 成功读取文件：{uploaded_file.name}，共 {len(document_text)} 个字符！")
-
     except Exception as e:
         st.error(f"读取文件失败了，报错如下：{e}")
 
 # ==========================================
-# 3. 🌟 关键：在这里渲染图表和下载按钮（此时数据肯定已经有了）
+# 3. 数据可视化与下载
 # ==========================================
 with st.sidebar:
     if "df" in st.session_state:
         st.markdown("---")
         st.subheader("📈 数据可视化")
         chart_type = st.selectbox("选择图表类型", ["不生成", "柱状图", "折线图"])
-
         if chart_type != "不生成":
-            # 让用户选择用哪一列作为X轴（默认选第一列）
             x_col = st.selectbox("选择 X 轴", st.session_state.df.columns)
             if chart_type == "柱状图":
                 st.bar_chart(st.session_state.df.set_index(x_col))
@@ -102,7 +100,7 @@ with st.sidebar:
 
 
 # ==========================================
-# 4. AI 聊天逻辑
+# 4. AI 聊天逻辑 (🌟 修复了你的嵌套错误)
 # ==========================================
 @st.cache_resource
 def get_client(key):
@@ -122,6 +120,7 @@ for msg in st.session_state.messages:
         with st.chat_message("assistant"):
             st.write(msg["content"])
 
+# 核心聊天触发区
 if prompt := st.chat_input("请输入你的问题..."):
     with st.chat_message("user"):
         st.write(prompt)
@@ -130,10 +129,28 @@ if prompt := st.chat_input("请输入你的问题..."):
     with st.chat_message("assistant"):
         with st.spinner("AI 正在思考..."):
             try:
+                # 联网搜索逻辑
+                search_context = ""
+                if enable_web_search:
+                    with st.spinner("🔍 正在全网搜索最新信息..."):
+                        results = DDGS().text(prompt, max_results=3)
+                        for res in results:
+                            search_context += f"- {res['title']}: {res['body']}\n"
+
                 temp_messages = st.session_state.messages.copy()
+
+                # 组装上下文
+                sys_content = ""
                 if document_text:
-                    sys_prompt = f"请根据以下文档/表格内容回答用户问题：\n\n{document_text}"
-                    temp_messages.insert(1, {"role": "system", "content": sys_prompt})
+                    sys_content += f"以下是参考文档：\n{document_text}\n\n"
+                if search_context:
+                    sys_content += f"以下是联网搜索到的最新信息：\n{search_context}\n\n"
+
+                if sys_content:
+                    temp_messages.insert(1, {
+                        "role": "system",
+                        "content": f"请根据以下背景信息回答用户：\n{sys_content}"
+                    })
 
                 response = client.chat.completions.create(
                     model="deepseek-chat",
