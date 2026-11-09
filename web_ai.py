@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 from pypdf import PdfReader
-import pandas as pd  # 🌟 必须有这行的
+import pandas as pd
 
 load_dotenv()
 
@@ -15,6 +15,9 @@ try:
 except Exception:
     api_key = os.getenv("DEEPSEEK_API_KEY")
 
+# ==========================================
+# 1. 先定义侧边栏的基础设置（角色、上传文件）
+# ==========================================
 with st.sidebar:
     st.header("⚙️ 设置")
     role = st.selectbox(
@@ -28,16 +31,14 @@ with st.sidebar:
         st.session_state.messages = [{"role": "system", "content": f"你现在的角色是：{role}。"}]
         st.rerun()
 
-    st.markdown("---")
-    st.caption("Powered by 长风 🌪️ | 我的第一个 AI 产品")
-
+# ==========================================
+# 2. 处理文件（这里是提取数据的地方）
+# ==========================================
 document_text = ""
 if uploaded_file is not None:
-    # 获取文件后缀名，比如 'xlsx'
     file_ext = uploaded_file.name.split(".")[-1].lower()
 
     try:
-        # 🌟 处理 PDF
         if file_ext == "pdf":
             reader = PdfReader(uploaded_file)
             for page in reader.pages:
@@ -45,35 +46,64 @@ if uploaded_file is not None:
                 if text:
                     document_text += text + "\n"
 
-        # 🌟 处理 TXT
         elif file_ext == "txt":
             document_text = uploaded_file.read().decode('utf-8')
 
-        # 🌟 处理 CSV 和 Excel
         elif file_ext in ["csv", "xlsx"]:
             if file_ext == "csv":
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
 
-            # 把表格转成纯文本
+            # 💡【必懂】：把数据存进 session_state，这样侧边栏才能用到
+            st.session_state.df = df
             document_text = df.to_csv(index=False)
 
             if len(document_text) == 0:
-                st.warning("⚠️ 表格读取成功，但里面好像是空的（或者数据不在第一个Sheet里）。")
+                st.warning("⚠️ 表格读取成功，但里面好像是空的。")
             else:
                 st.info(f"📊 表格识别成功！共 {len(df)} 行数据，{len(df.columns)} 列。")
 
-        # 检查最终提取的文本长度
         if len(document_text) > 0:
             st.success(f"✅ 成功读取文件：{uploaded_file.name}，共 {len(document_text)} 个字符！")
-        else:
-            st.error(f"⚠️ 成功打开文件，但没有提取到任何文字。请检查文件内容是否在第一页。")
 
     except Exception as e:
         st.error(f"读取文件失败了，报错如下：{e}")
 
+# ==========================================
+# 3. 🌟 关键：在这里渲染图表和下载按钮（此时数据肯定已经有了）
+# ==========================================
+with st.sidebar:
+    if "df" in st.session_state:
+        st.markdown("---")
+        st.subheader("📈 数据可视化")
+        chart_type = st.selectbox("选择图表类型", ["不生成", "柱状图", "折线图"])
 
+        if chart_type != "不生成":
+            # 让用户选择用哪一列作为X轴（默认选第一列）
+            x_col = st.selectbox("选择 X 轴", st.session_state.df.columns)
+            if chart_type == "柱状图":
+                st.bar_chart(st.session_state.df.set_index(x_col))
+            elif chart_type == "折线图":
+                st.line_chart(st.session_state.df.set_index(x_col))
+
+        st.markdown("---")
+        st.subheader("📥 导出数据")
+        csv_data = st.session_state.df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="点击下载处理好的 CSV",
+            data=csv_data,
+            file_name="处理后的数据.csv",
+            mime="text/csv"
+        )
+
+    st.markdown("---")
+    st.caption("Powered by 长风 🌪️ | 我的第一个 AI 产品")
+
+
+# ==========================================
+# 4. AI 聊天逻辑
+# ==========================================
 @st.cache_resource
 def get_client(key):
     return OpenAI(api_key=key, base_url="https://api.deepseek.com")
